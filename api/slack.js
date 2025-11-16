@@ -32,7 +32,7 @@ function recordEvent(type, payload) {
   }
 }
 
-app.message(async ({ message, say }) => {
+app.message(async ({ message, say, client }) => {
   try {
     if (message.subtype && message.subtype === 'bot_message') return;
     const text = (message.text || '').trim();
@@ -49,9 +49,31 @@ app.message(async ({ message, say }) => {
       return;
     }
 
+    
+    let cleanText = text;
+    if (BOT_USER_ID) {
+      cleanText = text.replace(new RegExp(`<@${BOT_USER_ID}>`, 'g'), '').trim();
+    }
 
-    if (text.startsWith('/ai ')) {
-      const prompt = text.substring(4).trim();
+    // Check for /status command
+    if (cleanText === '/status') {
+      const aiConfigured = genAI ? '✅ Configured' : '❌ Not configured';
+      const botIdStatus = BOT_USER_ID ? `✅ ${BOT_USER_ID}` : '❌ Unknown';
+      const eventsCount = recentEvents.length;
+      
+      const statusMessage = `*Bot Status*
+• Bot ID: ${botIdStatus}
+• AI (Gemini): ${aiConfigured}
+• Events recorded: ${eventsCount}
+• Status: ✅ Online`;
+      
+      await say({ text: statusMessage });
+      return;
+    }
+
+    // Check if message contains /ai command
+    if (cleanText.startsWith('/ai ')) {
+      const prompt = cleanText.substring(4).trim();
       
       if (!genAI) {
         await say({ text: '❌ AI not configured. Please set GEMINI_API_KEY.' });
@@ -64,13 +86,22 @@ app.message(async ({ message, say }) => {
       }
 
       try {
-        await say({ text: '🤔 Thinking...' });
-        const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const aiText = response.text();
+        // Send initial message
+        const result = await say({ text: '⏳ Asking AI...' });
+        const messageTs = result.ts;
+
+        // Get AI response
+        const model = genAI.getGenerativeModel({ model: 'gemini-flash-lite-latest' });
+        const aiResult = await model.generateContent(prompt);
+        const aiResponse = await aiResult.response;
+        const aiText = aiResponse.text();
         
-        await say({ text: `🤖 ${aiText}` });
+        
+        await client.chat.update({
+          channel: message.channel,
+          ts: messageTs,
+          text: `🤖 ${aiText}`
+        });
       } catch (aiErr) {
         console.error('AI error:', aiErr);
         await say({ text: '❌ AI error: ' + aiErr.message });
@@ -78,19 +109,72 @@ app.message(async ({ message, say }) => {
       return;
     }
 
-    await say({ text: `*(Unofficial)* Received: "${text}"` });
+    await say({ text: `*(Unofficial)* Received: "${cleanText}"` });
   } catch (err) {
     console.error('Error handling message:', err);
   }
 });
 
-app.event('app_mention', async ({ event, say }) => {
+app.event('app_mention', async ({ event, say, client }) => {
   try {
     const text = (event.text || '').trim();
     const info = { user: event.user, channel: event.channel, text };
     console.log('App mention:', info);
     recordEvent('app_mention', info);
-    await say({ text: `*(Unofficial)* Hi <@${event.user}> — I saw: "${text}"` });
+
+    
+    let prompt = text;
+    if (BOT_USER_ID) {
+      prompt = text.replace(new RegExp(`<@${BOT_USER_ID}>`, 'g'), '').trim();
+    }
+
+    // Check for /status command
+    if (prompt === '/status') {
+      const aiConfigured = genAI ? '✅ Configured' : '❌ Not configured';
+      const botIdStatus = BOT_USER_ID ? `✅ ${BOT_USER_ID}` : '❌ Unknown';
+      const eventsCount = recentEvents.length;
+      
+      const statusMessage = `*Bot Status*
+• Bot ID: ${botIdStatus}
+• AI (Gemini): ${aiConfigured}
+• Events recorded: ${eventsCount}
+• Status: ✅ Online`;
+      
+      await say({ text: statusMessage });
+      return;
+    }
+
+    if (!prompt) {
+      await say({ text: '❌ Please ask me something!' });
+      return;
+    }
+
+    if (!genAI) {
+      await say({ text: '❌ AI not configured' });
+      return;
+    }
+
+    try {
+      // Send initial message
+      const result = await say({ text: '⏳ Asking AI...' });
+      const messageTs = result.ts;
+
+      // Get AI response
+      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+      const aiResult = await model.generateContent(prompt);
+      const aiResponse = await aiResult.response;
+      const aiText = aiResponse.text();
+      
+      // Update the message with AI response
+      await client.chat.update({
+        channel: event.channel,
+        ts: messageTs,
+        text: `🤖 ${aiText}`
+      });
+    } catch (aiErr) {
+      console.error('AI error:', aiErr);
+      await say({ text: '❌ Error: ' + aiErr.message });
+    }
   } catch (err) {
     console.error('Error handling app_mention:', err);
   }
