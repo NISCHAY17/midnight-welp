@@ -1,4 +1,4 @@
-const { App, ExpressReceiver } = require('@slack/bolt');
+const { App } = require('@slack/bolt');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SIGNING_SECRET = process.env.SIGNING_SECRET;
@@ -7,15 +7,9 @@ if (!BOT_TOKEN || !SIGNING_SECRET) {
   throw new Error('BOT_TOKEN and SIGNING_SECRET env vars are required');
 }
 
-// Express receiver works on Vercel (serverless)
-const receiver = new ExpressReceiver({
-  signingSecret: SIGNING_SECRET,
-  processBeforeResponse: true,
-});
-
 const app = new App({
   token: BOT_TOKEN,
-  receiver,
+  signingSecret: SIGNING_SECRET,
   processBeforeResponse: true,
 });
 
@@ -91,19 +85,20 @@ app.error(async (error) => {
   }
 })();
 
-// Export the ExpressReceiver's app to Vercel
-receiver.router.get('/debug/events', (req, res) => {
-  const rows = recentEvents
-    .map((entry) => {
-      const payload = JSON.stringify(entry.payload, null, 2)
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      return `<tr><td>${entry.timestamp}</td><td>${entry.type}</td><td><pre>${payload}</pre></td></tr>`;
-    })
-    .join('');
+module.exports = async (req, res) => {
+  // Debug routes
+  if (req.method === 'GET' && req.url === '/api/slack/debug/events') {
+    const rows = recentEvents
+      .map((entry) => {
+        const payload = JSON.stringify(entry.payload, null, 2)
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        return `<tr><td>${entry.timestamp}</td><td>${entry.type}</td><td><pre>${payload}</pre></td></tr>`;
+      })
+      .join('');
 
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(`<!DOCTYPE html>
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.status(200).send(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -112,24 +107,47 @@ receiver.router.get('/debug/events', (req, res) => {
     body { font-family: sans-serif; margin: 1.5rem; }
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid #ccc; padding: 0.5rem; vertical-align: top; }
-    pre { margin: 0; font-size: 0.85rem; }
-    caption { font-weight: bold; margin-bottom: 0.5rem; }
+    pre { margin: 0; font-size: 0.85rem; white-space: pre-wrap; word-wrap: break-word; }
+    caption { font-weight: bold; margin-bottom: 0.5rem; text-align: left; }
   </style>
 </head>
 <body>
   <table>
-    <caption>Recent Slack events (latest first)</caption>
+    <caption>Recent Slack events (latest first) - Auto-refresh to see new messages</caption>
     <thead>
       <tr><th>Timestamp (UTC)</th><th>Type</th><th>Payload</th></tr>
     </thead>
-    <tbody>${rows || '<tr><td colspan="3">No events recorded yet.</td></tr>'}</tbody>
+    <tbody>${rows || '<tr><td colspan="3">No events recorded yet. Send a message to the bot!</td></tr>'}</tbody>
   </table>
 </body>
 </html>`);
-});
+    return;
+  }
 
-receiver.router.get('/debug/events.json', (req, res) => {
-  res.json({ events: recentEvents });
-});
+  if (req.method === 'GET' && req.url === '/api/slack/debug/events.json') {
+    res.status(200).json({ events: recentEvents });
+    return;
+  }
 
-module.exports = receiver.app;
+  // Handle Slack events
+  const slackEvent = req.body;
+
+  // URL verification challenge
+  if (slackEvent && slackEvent.type === 'url_verification') {
+    res.status(200).send(slackEvent.challenge);
+    return;
+  }
+
+  // Process Slack event through Bolt
+  try {
+    await app.processEvent({
+      body: slackEvent,
+      ack: async (response) => {
+        res.status(200).send(response || '');
+      },
+    });
+  } catch (error) {
+    console.error('Error processing event:', error);
+    res.status(500).send('Internal server error');
+  }
+};
