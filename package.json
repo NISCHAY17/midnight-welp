@@ -1,0 +1,20 @@
+{
+  "name": "midnight-welp",
+  "version": "0.1.0",
+  "description": "Unofficial Slack bot to answer midnight event questions (skeleton)",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js"
+  },
+  "keywords": ["slack", "bot", "bolt"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@slack/bolt": "^4.0.0",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.0"
+  }
+}
