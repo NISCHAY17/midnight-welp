@@ -64,9 +64,7 @@ app.event('message', async ({ event, context }) => {
     console.error('Error logging raw message event:', err);
   }
 });
-// --- end added ---
 
-// --- added: global error handler for Bolt ---
 app.error(async (error) => {
   console.error('Bolt app error:', error);
 });
