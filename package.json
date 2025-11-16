@@ -7,10 +7,15 @@
     "start": "node src/app.js",
     "dev": "nodemon src/app.js"
   },
-  "keywords": ["slack", "bot", "bolt"],
+  "keywords": [
+    "slack",
+    "bot",
+    "bolt"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "@slack/bolt": "^4.0.0",
     "dotenv": "^16.0.0"
   },

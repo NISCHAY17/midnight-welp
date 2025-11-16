@@ -1,28 +1,44 @@
 module.exports = async (req, res) => {
   try {
-    // Fetch logs from Vercel API
-    const projectId = process.env.VERCEL_PROJECT_ID || 'prj_your_project_id';
-    const teamId = process.env.VERCEL_TEAM_ID;
+    // Get deployment info from Vercel environment variables
+    const deploymentInfo = {
+      url: process.env.VERCEL_URL || 'unknown',
+      region: process.env.VERCEL_REGION || 'unknown',
+      env: process.env.VERCEL_ENV || 'unknown',
+      gitCommit: process.env.VERCEL_GIT_COMMIT_SHA?.substring(0, 7) || 'unknown',
+      deploymentId: process.env.VERCEL_DEPLOYMENT_ID || 'unknown',
+    };
+
+    const deploymentId = process.env.VERCEL_DEPLOYMENT_ID;
     const token = process.env.VERCEL_TOKEN;
 
-    if (!token) {
-      res.status(200).json({ error: 'No VERCEL_TOKEN configured' });
-      return;
+    let logs = null;
+
+    if (token && deploymentId) {
+      try {
+        const response = await fetch(
+          `https://api.vercel.com/v2/deployments/${deploymentId}/events`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        );
+        
+        if (response.ok) {
+          logs = await response.json();
+        } else {
+          logs = { error: `${response.status} ${response.statusText}` };
+        }
+      } catch (err) {
+        logs = { error: err.message };
+      }
     }
 
-    // Fetch deployment logs from Vercel
-    const url = teamId 
-      ? `https://api.vercel.com/v2/deployments?projectId=${projectId}&teamId=${teamId}&limit=20`
-      : `https://api.vercel.com/v2/deployments?projectId=${projectId}&limit=20`;
-
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
+    res.status(200).json({
+      deployment: deploymentInfo,
+      logs: logs || { message: 'Set VERCEL_TOKEN to view runtime logs' }
     });
-
-    const data = await response.json();
-    res.status(200).json(data);
   } catch (error) {
     console.error('Error fetching events:', error);
     res.status(500).json({ error: 'Error fetching events' });

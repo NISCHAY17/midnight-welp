@@ -1,11 +1,15 @@
 const { App } = require('@slack/bolt');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SIGNING_SECRET = process.env.SIGNING_SECRET;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 if (!BOT_TOKEN || !SIGNING_SECRET) {
   throw new Error('BOT_TOKEN and SIGNING_SECRET env vars are required');
 }
+
+const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
 const app = new App({
   token: BOT_TOKEN,
@@ -42,6 +46,35 @@ app.message(async ({ message, say }) => {
     const asksForHelp = /help/i.test(text);
 
     if (message.channel_type === 'channel' && !botWasMentioned && !asksForHelp) {
+      return;
+    }
+
+
+    if (text.startsWith('/ai ')) {
+      const prompt = text.substring(4).trim();
+      
+      if (!genAI) {
+        await say({ text: '❌ AI not configured. Please set GEMINI_API_KEY.' });
+        return;
+      }
+
+      if (!prompt) {
+        await say({ text: '❌ Please provide a prompt. Example: `/ai What is Slack?`' });
+        return;
+      }
+
+      try {
+        await say({ text: '🤔 Thinking...' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const aiText = response.text();
+        
+        await say({ text: `🤖 ${aiText}` });
+      } catch (aiErr) {
+        console.error('AI error:', aiErr);
+        await say({ text: '❌ AI error: ' + aiErr.message });
+      }
       return;
     }
 
@@ -88,7 +121,6 @@ app.error(async (error) => {
 module.exports = async (req, res) => {
   console.log('Request:', req.method, req.url);
   
-  // Parse URL
   const url = req.url || '';
   const pathname = url.split('?')[0];
   
@@ -128,7 +160,6 @@ module.exports = async (req, res) => {
   // Handle Slack events
   const slackEvent = req.body;
 
-  // URL verification challenge
   if (slackEvent && slackEvent.type === 'url_verification') {
     res.status(200).send(slackEvent.challenge);
     return;
