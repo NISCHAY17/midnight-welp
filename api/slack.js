@@ -86,80 +86,42 @@ app.error(async (error) => {
 })();
 
 module.exports = async (req, res) => {
-  // Debug routes
+  console.log('Request:', req.method, req.url);
+  
+  // Parse URL
   const url = req.url || '';
   const pathname = url.split('?')[0];
   
   // Root status page
-  if (req.method === 'GET' && (pathname === '/' || pathname === '/api/slack' || pathname === '')) {
+  if (req.method === 'GET' && pathname === '/api/slack') {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.status(200).send(`<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="utf-8" />
-  <title>midnight-welp Slack Bot</title>
+  <title>midnight-welp bot</title>
   <style>
-    body { font-family: sans-serif; margin: 2rem; max-width: 800px; }
-    h1 { color: #4a154b; }
-    .status { color: #2eb886; font-weight: bold; }
-    a { color: #1264a3; }
-    .info { background: #f8f8f8; padding: 1rem; border-radius: 4px; margin: 1rem 0; }
+    body { font-family: sans-serif; margin: 2rem; max-width: 600px; }
+    h1 { margin-bottom: 1rem; }
+    .ok { color: green; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    td { padding: 0.5rem; border-bottom: 1px solid #ddd; }
+    td:first-child { font-weight: bold; width: 150px; }
+    a { display: block; margin: 0.5rem 0; }
   </style>
 </head>
 <body>
-  <h1>🤖 midnight-welp Slack Bot</h1>
-  <p class="status">✅ Status: Online</p>
-  <div class="info">
-    <p><strong>Bot User ID:</strong> ${BOT_USER_ID || 'Loading...'}</p>
-    <p><strong>Events Recorded:</strong> ${recentEvents.length}</p>
-    <p><strong>Last Activity:</strong> ${recentEvents[0]?.timestamp || 'None yet'}</p>
-  </div>
-  <p><a href="/api/slack/debug/events">📊 View Recent Events</a></p>
-  <p><a href="/api/slack/debug/events.json">📄 Events JSON</a></p>
-</body>
-</html>`);
-    return;
-  }
-  
-  if (req.method === 'GET' && (pathname.endsWith('/debug/events') || pathname === '/api/slack/debug/events')) {
-    const rows = recentEvents
-      .map((entry) => {
-        const payload = JSON.stringify(entry.payload, null, 2)
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        return `<tr><td>${entry.timestamp}</td><td>${entry.type}</td><td><pre>${payload}</pre></td></tr>`;
-      })
-      .join('');
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.status(200).send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>midnight-welp debug events</title>
-  <style>
-    body { font-family: sans-serif; margin: 1.5rem; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ccc; padding: 0.5rem; vertical-align: top; }
-    pre { margin: 0; font-size: 0.85rem; white-space: pre-wrap; word-wrap: break-word; }
-    caption { font-weight: bold; margin-bottom: 0.5rem; text-align: left; }
-  </style>
-</head>
-<body>
+  <h1>midnight-welp</h1>
+  <p class="ok">Status: OK</p>
   <table>
-    <caption>Recent Slack events (latest first) - Auto-refresh to see new messages</caption>
-    <thead>
-      <tr><th>Timestamp (UTC)</th><th>Type</th><th>Payload</th></tr>
-    </thead>
-    <tbody>${rows || '<tr><td colspan="3">No events recorded yet. Send a message to the bot!</td></tr>'}</tbody>
+    <tr><td>Bot ID</td><td>${BOT_USER_ID || 'unknown'}</td></tr>
+    <tr><td>Events</td><td>${recentEvents.length}</td></tr>
+    <tr><td>Last event</td><td>${recentEvents[0]?.timestamp || 'none'}</td></tr>
   </table>
+  <a href="/api/events">View recent events</a>
+  <a href="/api/events.json">JSON data</a>
 </body>
 </html>`);
-    return;
-  }
-
-  if (req.method === 'GET' && (pathname.endsWith('/debug/events.json') || pathname === '/api/slack/debug/events.json')) {
-    res.status(200).json({ events: recentEvents });
     return;
   }
 
