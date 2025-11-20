@@ -9,7 +9,23 @@ if (!BOT_TOKEN || !SIGNING_SECRET) {
   throw new Error('BOT_TOKEN and SIGNING_SECRET env vars are required');
 }
 
-const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
+// Helper function to call Gemini
+async function askAI(prompt) {
+  if (!GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY not configured');
+  }
+  
+  try {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text();
+  } catch (error) {
+    console.error('AI error:', error);
+    throw error;
+  }
+}
 
 const app = new App({
   token: BOT_TOKEN,
@@ -35,6 +51,7 @@ function recordEvent(type, payload) {
 app.message(async ({ message, say, client }) => {
   try {
     if (message.subtype && message.subtype === 'bot_message') return;
+    if (message.subtype === 'message_changed') return;
     const text = (message.text || '').trim();
     if (!text) return;
 
@@ -45,7 +62,12 @@ app.message(async ({ message, say, client }) => {
     const botWasMentioned = BOT_USER_ID && text.includes(`<@${BOT_USER_ID}>`);
     const asksForHelp = /help/i.test(text);
 
-    if (message.channel_type === 'channel' && !botWasMentioned && !asksForHelp) {
+    // If bot was mentioned in a channel, let app_mention handler deal with it
+    if (message.channel_type === 'channel' && botWasMentioned) {
+      return;
+    }
+
+    if (message.channel_type === 'channel' && !asksForHelp) {
       return;
     }
 
@@ -91,7 +113,7 @@ app.message(async ({ message, say, client }) => {
         const messageTs = result.ts;
 
         // Get AI response
-        const model = genAI.getGenerativeModel({ model: 'gemini-flash-lite-latest' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
         const aiResult = await model.generateContent(prompt);
         const aiResponse = await aiResult.response;
         const aiText = aiResponse.text();
@@ -130,7 +152,7 @@ app.event('app_mention', async ({ event, say, client }) => {
 
     // Check for /status command
     if (prompt === '/status') {
-      const aiConfigured = genAI ? '✅ Configured' : '❌ Not configured';
+      const aiConfigured = GEMINI_API_KEY ? '✅ Configured' : '❌ Not configured';
       const botIdStatus = BOT_USER_ID ? `✅ ${BOT_USER_ID}` : '❌ Unknown';
       const eventsCount = recentEvents.length;
       
@@ -149,28 +171,20 @@ app.event('app_mention', async ({ event, say, client }) => {
       return;
     }
 
-    if (!genAI) {
+    if (!GEMINI_API_KEY) {
       await say({ text: '❌ AI not configured' });
       return;
     }
 
     try {
-      // Send initial message
-      const result = await say({ text: '⏳ Asking AI...' });
-      const messageTs = result.ts;
+      // Send initial acknowledgment
+      await say({ text: '⏳ Asking AI...' });
 
-      // Get AI response
-      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-      const aiResult = await model.generateContent(prompt);
-      const aiResponse = await aiResult.response;
-      const aiText = aiResponse.text();
+      // Get AI response (this might take a bit)
+      const aiText = await askAI(prompt);
       
-      // Update the message with AI response
-      await client.chat.update({
-        channel: event.channel,
-        ts: messageTs,
-        text: `🤖 ${aiText}`
-      });
+      // Send the actual response as a new message
+      await say({ text: `🤖 ${aiText}` });
     } catch (aiErr) {
       console.error('AI error:', aiErr);
       await say({ text: '❌ Error: ' + aiErr.message });

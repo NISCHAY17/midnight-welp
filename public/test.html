@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Test AI - midnight-welp</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 700px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    h1 { margin-bottom: 0.5rem; }
+    textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 0.75rem;
+      font-family: inherit;
+      font-size: 1rem;
+      border: 2px solid #ddd;
+      border-radius: 4px;
+      margin: 1rem 0;
+    }
+    button {
+      padding: 0.75rem 1.5rem;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .response {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: #f5f5f5;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      min-height: 50px;
+    }
+    .error {
+      background: #ffebee;
+      color: #c62828;
+    }
+    .loading {
+      color: #666;
+      font-style: italic;
+    }
+    a {
+      color: #1976d2;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Test AI</h1>
+  <p><a href="/">← Back</a></p>
+  
+  <textarea id="prompt" placeholder="Enter your prompt here...">What is the meaning of life?</textarea>
+  
+  <button onclick="testAI()">Send to AI</button>
+  
+  <div id="response" class="response"></div>
+  <div id="debug" style="margin-top: 2rem; padding: 1rem; background: #f0f0f0; border-radius: 4px; font-size: 0.9rem; display: none;">
+    <strong>Debug Info:</strong>
+    <pre id="debugOutput" style="margin-top: 0.5rem; white-space: pre-wrap; word-break: break-all;"></pre>
+  </div>
+
+  <script>
+    async function testAI() {
+      const prompt = document.getElementById('prompt').value.trim();
+      const responseDiv = document.getElementById('response');
+      const button = document.querySelector('button');
+      
+      if (!prompt) {
+        responseDiv.className = 'response error';
+        responseDiv.textContent = 'Please enter a prompt';
+        return;
+      }
+      
+      button.disabled = true;
+      responseDiv.className = 'response loading';
+      responseDiv.textContent = 'Asking AI...';
+      
+      try {
+        const response = await fetch('/api/ai', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ prompt })
+        });
+        
+        const data = await response.json();
+        const debugDiv = document.getElementById('debug');
+        const debugOutput = document.getElementById('debugOutput');
+        
+        debugDiv.style.display = 'block';
+        debugOutput.textContent = JSON.stringify({
+          status: response.status,
+          statusText: response.statusText,
+          data
+        }, null, 2);
+        
+        if (data.success) {
+          responseDiv.className = 'response';
+          responseDiv.textContent = data.response;
+        } else {
+          responseDiv.className = 'response error';
+          responseDiv.textContent = 'Error: ' + (data.details || data.error || 'Unknown error');
+        }
+      } catch (error) {
+        responseDiv.className = 'response error';
+        responseDiv.textContent = 'Network error: ' + error.message;
+        const debugDiv = document.getElementById('debug');
+        const debugOutput = document.getElementById('debugOutput');
+        debugDiv.style.display = 'block';
+        debugOutput.textContent = error.toString();
+      } finally {
+        button.disabled = false;
+      }
+    }
+    
+    // Allow Enter to submit (with Shift+Enter for new lines)
+    document.getElementById('prompt').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        testAI();
+      }
+    });
+  </script>
+</body>
+</html>
