@@ -201,7 +201,7 @@ app.message(async ({ message, say, client }) => {
           text: `⏳ Thinking... (<${liveLink}|View Live Response>)`
         });
         
-        const timeoutMs = 8000;
+        const timeoutMs = 25000;
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('AI request timed out')), timeoutMs)
         );
@@ -318,7 +318,7 @@ app.event('app_mention', async ({ event, say, client }) => {
       });
 
       // Get AI response (this might take a bit)
-      const timeoutMs = 8000; // 8 seconds 
+      const timeoutMs = 25000; // 25 seconds 
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('AI request timed out')), timeoutMs)
       );
