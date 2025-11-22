@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Response Viewer</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; line-height: 1.6; }
+    h1 { border-bottom: 1px solid #eee; padding-bottom: 1rem; }
+    .prompt-box { background: #f8f9fa; padding: 1rem; border-radius: 6px; margin-bottom: 2rem; border: 1px solid #e9ecef; }
+    .prompt-label { font-weight: bold; color: #666; font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem; }
+    #response { white-space: pre-wrap; }
+    .loading { color: #666; font-style: italic; display: flex; align-items: center; gap: 0.5rem; }
+    .error { color: #dc3545; padding: 1rem; background: #fff5f5; border-radius: 6px; border: 1px solid #ffe3e3; }
+    .spinner { width: 1rem; height: 1rem; border: 2px solid #ccc; border-top-color: #333; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <h1>Midnight Welp AI</h1>
+  
+  <div class="prompt-label">Your Question:</div>
+  <div id="prompt-display" class="prompt-box"></div>
+
+  <div class="prompt-label">AI Response:</div>
+  <div id="response" class="loading">
+    <div class="spinner"></div>
+    <span>Connecting to Gemini...</span>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const prompt = params.get('prompt');
+    const channel = params.get('channel');
+    const ts = params.get('ts');
+    const sig = params.get('sig');
+
+    const promptDisplay = document.getElementById('prompt-display');
+    const responseDisplay = document.getElementById('response');
+
+    if (!prompt) {
+      promptDisplay.textContent = '(No prompt provided)';
+      responseDisplay.textContent = 'Error: No prompt found in URL parameters.';
+      responseDisplay.className = 'error';
+    } else {
+      promptDisplay.textContent = prompt;
+
+      fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      })
+      .then(res => res.json())
+      .then(data => {
+        responseDisplay.className = '';
+        if (data.success) {
+          // Simple markdown-ish rendering
+          let text = data.response;
+          // Bold
+          text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+          text = text.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+          
+          responseDisplay.innerHTML = text;
+
+          if (channel && ts && sig) {
+            const statusDiv = document.createElement('div');
+            statusDiv.style.marginTop = '1rem';
+            statusDiv.style.fontSize = '0.9rem';
+            statusDiv.style.color = '#666';
+            statusDiv.textContent = 'Updating Slack message...';
+            document.body.appendChild(statusDiv);
+
+            fetch('/api/update-slack', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                channel, 
+                ts, 
+                text: data.response,
+                prompt,
+                sig
+              })
+            })
+            .then(res => res.json())
+            .then(updateData => {
+              if (updateData.success) {
+                statusDiv.textContent = '✅ Slack message updated successfully!';
+                statusDiv.style.color = 'green';
+              } else {
+                statusDiv.textContent = '❌ Failed to update Slack: ' + (updateData.error || 'Unknown error');
+                statusDiv.style.color = 'red';
+              }
+            })
+            .catch(err => {
+              statusDiv.textContent = '❌ Network error updating Slack: ' + err.message;
+              statusDiv.style.color = 'red';
+            });
+          }
+        } else {
+          responseDisplay.textContent = 'Error: ' + (data.error || 'Unknown error') + (data.details ? ' (' + data.details + ')' : '');
+          responseDisplay.className = 'error';
+        }
+      })
+      .catch(err => {
+        responseDisplay.textContent = 'Network Error: ' + err.message;
+        responseDisplay.className = 'error';
+      });
+    }
+  </script>
+</body>
+</html>

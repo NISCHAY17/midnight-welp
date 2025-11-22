@@ -1,5 +1,6 @@
 const { App } = require('@slack/bolt');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const crypto = require('crypto');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SIGNING_SECRET = process.env.SIGNING_SECRET;
@@ -9,6 +10,8 @@ if (!BOT_TOKEN || !SIGNING_SECRET) {
   throw new Error('BOT_TOKEN and SIGNING_SECRET env vars are required');
 }
 
+const APP_URL = 'https://midnight-welp.vercel.app';
+
 // Helper function to call Gemini
 async function askAI(prompt) {
   if (!GEMINI_API_KEY) {
@@ -16,6 +19,7 @@ async function askAI(prompt) {
   }
   
   try {
+    console.log('Calling Gemini with model: gemini-2.5-flash');
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent(prompt);
@@ -30,7 +34,7 @@ async function askAI(prompt) {
 const app = new App({
   token: BOT_TOKEN,
   signingSecret: SIGNING_SECRET,
-  processBeforeResponse: true,
+  processBeforeResponse: false,
 });
 
 let BOT_USER_ID = null;
@@ -48,6 +52,26 @@ function recordEvent(type, payload) {
   }
 }
 
+// Helper to check if message was already updated
+async function isMessageUpdated(client, channel, ts) {
+  try {
+    const result = await client.conversations.history({
+      channel,
+      latest: ts,
+      inclusive: true,
+      limit: 1
+    });
+    if (result.messages && result.messages.length > 0) {
+      const msg = result.messages[0];
+      // If message contains the robot emoji or doesn't contain "Asking AI", it's likely updated
+      return msg.text.includes('🤖') || !msg.text.includes('Asking AI') && !msg.text.includes('Thinking...');
+    }
+  } catch (e) {
+    console.log('Error checking message status:', e);
+  }
+  return false;
+}
+
 app.message(async ({ message, say, client }) => {
   try {
     if (message.subtype && message.subtype === 'bot_message') return;
@@ -62,7 +86,6 @@ app.message(async ({ message, say, client }) => {
     const botWasMentioned = BOT_USER_ID && text.includes(`<@${BOT_USER_ID}>`);
     const asksForHelp = /help/i.test(text);
 
-    // If bot was mentioned in a channel, let app_mention handler deal with it
     if (message.channel_type === 'channel' && botWasMentioned) {
       return;
     }
@@ -79,15 +102,15 @@ app.message(async ({ message, say, client }) => {
 
     // Check for /status command
     if (cleanText === '/status') {
-      const aiConfigured = genAI ? '✅ Configured' : '❌ Not configured';
+      const aiConfigured = GEMINI_API_KEY ? '✅ Configured' : '❌ Not configured';
       const botIdStatus = BOT_USER_ID ? `✅ ${BOT_USER_ID}` : '❌ Unknown';
       const eventsCount = recentEvents.length;
       
-      const statusMessage = `*Bot Status*
-• Bot ID: ${botIdStatus}
-• AI (Gemini): ${aiConfigured}
-• Events recorded: ${eventsCount}
-• Status: ✅ Online`;
+      const statusMessage = "*Bot Status*\n" +
+        "• Bot ID: " + botIdStatus + "\n" +
+        "• AI (Gemini): " + aiConfigured + "\n" +
+        "• Events recorded: " + eventsCount + "\n" +
+        "• Status: ✅ Online";
       
       await say({ text: statusMessage });
       return;
@@ -97,7 +120,7 @@ app.message(async ({ message, say, client }) => {
     if (cleanText.startsWith('/ai ')) {
       const prompt = cleanText.substring(4).trim();
       
-      if (!genAI) {
+      if (!GEMINI_API_KEY) {
         await say({ text: '❌ AI not configured. Please set GEMINI_API_KEY.' });
         return;
       }
@@ -107,26 +130,123 @@ app.message(async ({ message, say, client }) => {
         return;
       }
 
+      let loadingMsg;
       try {
-        // Send initial message
-        const result = await say({ text: '⏳ Asking AI...' });
-        const messageTs = result.ts;
-
-        // Get AI response
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-        const aiResult = await model.generateContent(prompt);
-        const aiResponse = await aiResult.response;
-        const aiText = aiResponse.text();
+        const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(prompt)}`;
+        loadingMsg = await say({ text: `⏳ Asking AI... (<${liveLink}|View Live Response>)` });
         
+        const timeoutMs = 8000;
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('AI request timed out')), timeoutMs)
+        );
+        const aiText = await Promise.race([askAI(prompt), timeoutPromise]);
         
         await client.chat.update({
-          channel: message.channel,
-          ts: messageTs,
+          channel: loadingMsg.channel,
+          ts: loadingMsg.ts,
           text: `🤖 ${aiText}`
         });
       } catch (aiErr) {
         console.error('AI error:', aiErr);
-        await say({ text: '❌ AI error: ' + aiErr.message });
+        
+        // Check if message was already updated by the live link
+        if (loadingMsg && await isMessageUpdated(client, loadingMsg.channel, loadingMsg.ts)) {
+          console.log('Message already updated, skipping timeout error update');
+          return;
+        }
+
+        const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(prompt)}`;
+        let errorText = `❌ AI error: ${aiErr.message}\nTry the live link: <${liveLink}|View Live Response>`;
+        
+        if (aiErr.message.includes('timed out')) {
+             errorText = `⚠️ Response taking too long.\n<${liveLink}|👉 Click here to view the answer>`;
+        }
+        
+        if (loadingMsg) {
+          await client.chat.update({
+            channel: loadingMsg.channel,
+            ts: loadingMsg.ts,
+            text: errorText
+          });
+        } else {
+          await say({ text: errorText });
+        }
+      }
+      return;
+    }
+
+    // If it's a DM and not a command, send to AI directly
+    if (message.channel_type === 'im') {
+      if (!GEMINI_API_KEY) {
+        await say({ text: '❌ AI not configured' });
+        return;
+      }
+
+      let loadingMsg;
+      try {
+        loadingMsg = await say({ text: '⏳ Thinking...' });
+        
+        const ts = loadingMsg.ts;
+        const channel = loadingMsg.channel;
+        const signature = crypto
+          .createHmac('sha256', SIGNING_SECRET)
+          .update(cleanText + channel + ts)
+          .digest('hex');
+          
+        const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(cleanText)}&channel=${channel}&ts=${ts}&sig=${signature}`;
+        
+        await client.chat.update({
+          channel,
+          ts,
+          text: `⏳ Thinking... (<${liveLink}|View Live Response>)`
+        });
+        
+        const timeoutMs = 8000;
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('AI request timed out')), timeoutMs)
+        );
+        const aiText = await Promise.race([askAI(cleanText), timeoutPromise]);
+        
+        await client.chat.update({
+          channel: loadingMsg.channel,
+          ts: loadingMsg.ts,
+          text: `🤖 ${aiText}`
+        });
+      } catch (aiErr) {
+        console.error('AI error:', aiErr);
+        
+        // Check if message was already updated by the live link
+        if (loadingMsg && await isMessageUpdated(client, loadingMsg.channel, loadingMsg.ts)) {
+          console.log('Message already updated, skipping timeout error update');
+          return;
+        }
+
+        let errorText = `❌ Error: ${aiErr.message}`;
+        
+        if (loadingMsg) {
+          const ts = loadingMsg.ts;
+          const channel = loadingMsg.channel;
+          const signature = crypto
+            .createHmac('sha256', SIGNING_SECRET)
+            .update(cleanText + channel + ts)
+            .digest('hex');
+          const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(cleanText)}&channel=${channel}&ts=${ts}&sig=${signature}`;
+          
+          // If it's a timeout, show a friendlier message
+          if (aiErr.message.includes('timed out')) {
+             errorText = `⚠️ Response taking too long.\n<${liveLink}|👉 Click here to view the answer>`;
+          } else {
+             errorText += `\nTry the live link: <${liveLink}|View Live Response>`;
+          }
+          
+          await client.chat.update({
+            channel: loadingMsg.channel,
+            ts: loadingMsg.ts,
+            text: errorText
+          });
+        } else {
+          await say({ text: errorText });
+        }
       }
       return;
     }
@@ -156,11 +276,11 @@ app.event('app_mention', async ({ event, say, client }) => {
       const botIdStatus = BOT_USER_ID ? `✅ ${BOT_USER_ID}` : '❌ Unknown';
       const eventsCount = recentEvents.length;
       
-      const statusMessage = `*Bot Status*
-• Bot ID: ${botIdStatus}
-• AI (Gemini): ${aiConfigured}
-• Events recorded: ${eventsCount}
-• Status: ✅ Online`;
+      const statusMessage = "*Bot Status*\n" +
+        "• Bot ID: " + botIdStatus + "\n" +
+        "• AI (Gemini): " + aiConfigured + "\n" +
+        "• Events recorded: " + eventsCount + "\n" +
+        "• Status: ✅ Online";
       
       await say({ text: statusMessage });
       return;
@@ -176,18 +296,76 @@ app.event('app_mention', async ({ event, say, client }) => {
       return;
     }
 
+    let loadingMsg;
     try {
       // Send initial acknowledgment
-      await say({ text: '⏳ Asking AI...' });
+      loadingMsg = await say({ text: '⏳ Asking AI...' });
+      
+      const ts = loadingMsg.ts;
+      const channel = loadingMsg.channel;
+      const signature = crypto
+        .createHmac('sha256', SIGNING_SECRET)
+        .update(prompt + channel + ts)
+        .digest('hex');
+        
+      const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(prompt)}&channel=${channel}&ts=${ts}&sig=${signature}`;
+      
+      // Update with the link immediately so user can click if they want
+      await client.chat.update({
+        channel,
+        ts,
+        text: `⏳ Asking AI... (<${liveLink}|View Live Response>)`
+      });
 
       // Get AI response (this might take a bit)
-      const aiText = await askAI(prompt);
+      const timeoutMs = 8000; // 8 seconds 
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('AI request timed out')), timeoutMs)
+      );
       
-      // Send the actual response as a new message
-      await say({ text: `🤖 ${aiText}` });
+      const aiText = await Promise.race([askAI(prompt), timeoutPromise]);
+      
+      // Update the actual response
+      await client.chat.update({
+        channel: loadingMsg.channel,
+        ts: loadingMsg.ts,
+        text: `🤖 ${aiText}`
+      });
     } catch (aiErr) {
       console.error('AI error:', aiErr);
-      await say({ text: '❌ Error: ' + aiErr.message });
+
+      // Check if message was already updated by the live link
+      if (loadingMsg && await isMessageUpdated(client, loadingMsg.channel, loadingMsg.ts)) {
+        console.log('Message already updated, skipping timeout error update');
+        return;
+      }
+
+      let errorText = `❌ Error: ${aiErr.message}`;
+      
+      if (loadingMsg) {
+        const ts = loadingMsg.ts;
+        const channel = loadingMsg.channel;
+        const signature = crypto
+          .createHmac('sha256', SIGNING_SECRET)
+          .update(prompt + channel + ts)
+          .digest('hex');
+        const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(prompt)}&channel=${channel}&ts=${ts}&sig=${signature}`;
+        
+        // If it's a timeout, show a friendlier message
+        if (aiErr.message.includes('timed out')) {
+            errorText = `⚠️ Response taking too long.\n<${liveLink}|👉 Click here to view the answer>`;
+        } else {
+            errorText += `\nTry the live link: <${liveLink}|View Live Response>`;
+        }
+        
+        await client.chat.update({
+          channel: loadingMsg.channel,
+          ts: loadingMsg.ts,
+          text: errorText
+        });
+      } else {
+        await say({ text: errorText });
+      }
     }
   } catch (err) {
     console.error('Error handling app_mention:', err);
@@ -260,6 +438,13 @@ module.exports = async (req, res) => {
 
   if (slackEvent && slackEvent.type === 'url_verification') {
     res.status(200).send(slackEvent.challenge);
+    return;
+  }
+
+  // Check for retry
+  if (req.headers['x-slack-retry-num']) {
+    console.log('Ignoring retry:', req.headers['x-slack-retry-num']);
+    res.status(200).send('');
     return;
   }
 
