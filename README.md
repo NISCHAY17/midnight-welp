@@ -10,6 +10,9 @@ Midnight Welp is a serverless Slack bot designed to handle complex AI queries wi
 
 Instead of processing the AI response immediately (which takes too long), the bot replies with a **"Generate Answer" button**. This button opens a web page that runs the AI logic client-side (or via a separate API call) and then updates the original Slack message with the answer.
 
+![Screenshot 1](repo%20stuff/Screenshot%202025-11-23%20151956.png)
+![Screenshot 2](repo%20stuff/Screenshot%202025-11-23%20151843.png)
+
 ## 🚀 Highly Customizable
 
 While this was built for Midnight, it is designed to be a generic **"Knowledge Base Bot"** for any community. You can adapt it for your own hackathon, club, or discord server (with Slack adapter) easily.
