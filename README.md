@@ -2,7 +2,7 @@
 
 # Midnight Welp 🌙
 
-> **Note:** This bot was originally built to answer questions for **Hack Club Midnight**, an in-person murder mystery hackathon in Vienna. This repository serves as a submission for a Hack Club event.
+> **Note:** This bot was originally built to answer questions for [**Hack Club Midnight**](https://midnight.hackclub.com/), an in-person murder mystery hackathon in Vienna by [Hack Club](https://hackclub.com/). This repository serves as a submission for a Hack Club event.
 
 ## Overview
 
