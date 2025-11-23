@@ -5,6 +5,19 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const SIGNING_SECRET = process.env.SIGNING_SECRET;
 const APP_URL = 'https://midnight-welp.vercel.app';
 
+function convertMarkdownToSlack(text) {
+  // Bold: **text** -> *text*
+  let slackText = text.replace(/\*\*(.*?)\*\*/g, '*$1*');
+  
+  slackText = slackText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>');
+  
+  // Headers: # Header -> *Header*
+  slackText = slackText.replace(/^#{1,6}\s+(.*)$/gm, '*$1*');
+  
+  
+  return slackText;
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -31,6 +44,9 @@ module.exports = async (req, res) => {
 
   const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(prompt)}&channel=${channel}&ts=${ts}&sig=${sig}`;
 
+  // Convert Markdown to Slack format
+  const formattedText = convertMarkdownToSlack(text);
+
   try {
     const client = new WebClient(BOT_TOKEN);
 
@@ -45,7 +61,7 @@ module.exports = async (req, res) => {
             "type": "section",
             "text": {
               "type": "mrkdwn",
-              "text": text
+              "text": formattedText
             }
           },
           {
@@ -71,7 +87,7 @@ module.exports = async (req, res) => {
         await client.chat.update({
             channel,
             ts,
-            text: text,
+            text: formattedText,
             blocks: blocks
         });
     } catch (slackError) {

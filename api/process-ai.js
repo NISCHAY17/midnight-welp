@@ -1,6 +1,8 @@
 const { WebClient } = require('@slack/web-api');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SIGNING_SECRET = process.env.SIGNING_SECRET;
@@ -14,8 +16,22 @@ async function askAI(prompt) {
   
   try {
     console.log('Calling Gemini with model: gemini-2.5-flash');
+    
+    // Read context file
+    const contextPath = path.join(__dirname, 'context.txt');
+    let systemInstruction = '';
+    try {
+        systemInstruction = fs.readFileSync(contextPath, 'utf8');
+    } catch (e) {
+        console.error('Failed to read context.txt:', e);
+    }
+
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ 
+        model: 'gemini-2.5-flash',
+        systemInstruction: systemInstruction
+    });
+    
     const result = await model.generateContent(prompt);
     const response = await result.response;
     return response.text();

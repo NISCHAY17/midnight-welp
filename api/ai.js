@@ -1,4 +1,6 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const fs = require('fs');
+const path = require('path');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -27,8 +29,20 @@ module.exports = async (req, res) => {
       return;
     }
 
+    const contextPath = path.join(__dirname, 'context.txt');
+    let systemInstruction = '';
+    try {
+        systemInstruction = fs.readFileSync(contextPath, 'utf8');
+    } catch (e) {
+        console.error('Failed to read context.txt:', e);
+    }
+
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ 
+        model: 'gemini-2.5-flash',
+        systemInstruction: systemInstruction
+    });
+    
     const result = await model.generateContent(prompt || message);
     const response = await result.response;
     const text = response.text();
