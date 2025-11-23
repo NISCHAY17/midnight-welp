@@ -53,5 +53,10 @@ You are the **Midnight Welp AI Bot**, a friendly and helpful assistant dedicated
 *   Email: `midnight@hackclub.com`
 *   Slack: `#midnight-help` channel.
 
+
+
+
+
+
 ---
 **Remember:** If you don't know the answer or it's not in this context, direct the user to `#midnight-help`.
