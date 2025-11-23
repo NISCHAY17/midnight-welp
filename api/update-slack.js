@@ -3,6 +3,7 @@ const crypto = require('crypto');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SIGNING_SECRET = process.env.SIGNING_SECRET;
+const APP_URL = 'https://midnight-welp.vercel.app';
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -28,13 +29,89 @@ module.exports = async (req, res) => {
     return;
   }
 
+  const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(prompt)}&channel=${channel}&ts=${ts}&sig=${sig}`;
+
   try {
     const client = new WebClient(BOT_TOKEN);
-    await client.chat.update({
-      channel,
-      ts,
-      text: `🤖 ${text}`
-    });
+
+    // We show it for the "Click received" message, but remove it for the final answer
+    const isIntermediate = text.includes("Click received");
+    
+    let blocks = [];
+    
+    if (isIntermediate) {
+        blocks = [
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": text
+            }
+          },
+          {
+            "type": "actions",
+            "elements": [
+              {
+                "type": "button",
+                "text": {
+                  "type": "plain_text",
+                  "text": "View Live Status 🚀",
+                  "emoji": true
+                },
+                "style": "primary",
+                "url": liveLink
+              }
+            ]
+          }
+        ];
+    }
+
+    try {
+        // Attempt to update
+        await client.chat.update({
+            channel,
+            ts,
+            text: text,
+            blocks: blocks
+        });
+    } catch (slackError) {
+        // Handle message too long errors
+        if (slackError.data && (slackError.data.error === 'msg_too_long' || slackError.data.error === 'invalid_blocks')) {
+             console.log('Message too long, falling back to summary');
+             
+             await client.chat.update({
+                channel,
+                ts,
+                text: "Response too long to display.",
+                blocks: [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "⚠️ *Response too long for Slack*\n\nThe AI response is ready but is too large to display here completely. Please view it on the website."
+                      }
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Full Response on Web 🚀",
+                            "emoji": true
+                          },
+                          "style": "primary",
+                          "url": liveLink
+                        }
+                      ]
+                    }
+                ]
+             });
+        } else {
+            throw slackError;
+        }
+    }
 
     res.status(200).json({ success: true });
   } catch (error) {

@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
     res.status(200).json({
       success: true,
       response: text,
-      model: 'gemini-2.5-flash'
+      model: 'gemini-2.5-flash-lite'
     });
   } catch (error) {
     console.error('Gemini API error:', error);

@@ -1,4 +1,5 @@
 const { App } = require('@slack/bolt');
+const { WebClient } = require('@slack/web-api');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const crypto = require('crypto');
 
@@ -19,9 +20,9 @@ async function askAI(prompt) {
   }
   
   try {
-    console.log('Calling Gemini with model: gemini-2.5-flash');
+    console.log('Calling Gemini with model: gemini-2.5-flash-lite');
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite ' });
     const result = await model.generateContent(prompt);
     const response = await result.response;
     return response.text();
@@ -132,44 +133,59 @@ app.message(async ({ message, say, client }) => {
 
       let loadingMsg;
       try {
-        const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(prompt)}`;
-        loadingMsg = await say({ text: `⏳ Asking AI... (<${liveLink}|View Live Response>)` });
+        // Send initial acknowledgment
+        loadingMsg = await say({ text: '⏳ Asking AI...' });
         
-        const timeoutMs = 8000;
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('AI request timed out')), timeoutMs)
-        );
-        const aiText = await Promise.race([askAI(prompt), timeoutPromise]);
+        const ts = loadingMsg.ts;
+        const channel = loadingMsg.channel;
+        const signature = crypto
+          .createHmac('sha256', SIGNING_SECRET)
+          .update(prompt + channel + ts)
+          .digest('hex');
+          
+        const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(prompt)}&channel=${channel}&ts=${ts}&sig=${signature}`;
         
+        // Update with the link immediately
         await client.chat.update({
-          channel: loadingMsg.channel,
-          ts: loadingMsg.ts,
-          text: `🤖 ${aiText}`
+          channel,
+          ts,
+          text: "Click the button to generate AI response",
+          blocks: [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "I received your request. Click the button to generate the response."
+              }
+            },
+            {
+              "type": "actions",
+              "elements": [
+                {
+                  "type": "button",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "Generate Response 🚀",
+                    "emoji": true
+                  },
+                  "style": "primary",
+                  "url": liveLink
+                }
+              ]
+            }
+          ]
         });
+
+        // We do NOT dispatch to background. The user must click the link.
       } catch (aiErr) {
         console.error('AI error:', aiErr);
         
-        // Check if message was already updated by the live link
-        if (loadingMsg && await isMessageUpdated(client, loadingMsg.channel, loadingMsg.ts)) {
-          console.log('Message already updated, skipping timeout error update');
-          return;
-        }
-
-        const liveLink = `${APP_URL}/response.html?prompt=${encodeURIComponent(prompt)}`;
-        let errorText = `❌ AI error: ${aiErr.message}\nTry the live link: <${liveLink}|View Live Response>`;
-        
-        if (aiErr.message.includes('timed out')) {
-             errorText = `⚠️ Response taking too long.\n<${liveLink}|👉 Click here to view the answer>`;
-        }
-        
         if (loadingMsg) {
-          await client.chat.update({
-            channel: loadingMsg.channel,
-            ts: loadingMsg.ts,
-            text: errorText
-          });
-        } else {
-          await say({ text: errorText });
+             await client.chat.update({
+                channel: loadingMsg.channel,
+                ts: loadingMsg.ts,
+                text: `❌ Error starting AI task: ${aiErr.message}`
+             });
         }
       }
       return;
@@ -198,20 +214,35 @@ app.message(async ({ message, say, client }) => {
         await client.chat.update({
           channel,
           ts,
-          text: `⏳ Thinking... (<${liveLink}|View Live Response>)`
+          text: "Click the button to generate AI response",
+          blocks: [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "I received your request. Click the button to generate the response."
+              }
+            },
+            {
+              "type": "actions",
+              "elements": [
+                {
+                  "type": "button",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "Generate Response 🚀",
+                    "emoji": true
+                  },
+                  "style": "primary",
+                  "url": liveLink
+                }
+              ]
+            }
+          ]
         });
         
-        const timeoutMs = 25000;
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('AI request timed out')), timeoutMs)
-        );
-        const aiText = await Promise.race([askAI(cleanText), timeoutPromise]);
-        
-        await client.chat.update({
-          channel: loadingMsg.channel,
-          ts: loadingMsg.ts,
-          text: `🤖 ${aiText}`
-        });
+        // We do NOT dispatch to background. The user must click the link.
+        return;
       } catch (aiErr) {
         console.error('AI error:', aiErr);
         
@@ -314,23 +345,38 @@ app.event('app_mention', async ({ event, say, client }) => {
       await client.chat.update({
         channel,
         ts,
-        text: `⏳ Asking AI... (<${liveLink}|View Live Response>)`
+        text: "Click the button to generate AI response",
+        blocks: [
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "I received your request. Click the button to generate the response."
+            }
+          },
+          {
+            "type": "actions",
+            "elements": [
+              {
+                "type": "button",
+                "text": {
+                  "type": "plain_text",
+                  "text": "Generate Response 🚀",
+                  "emoji": true
+                },
+                "style": "primary",
+                "url": liveLink
+              }
+            ]
+          }
+        ]
       });
 
-      // Get AI response (this might take a bit)
-      const timeoutMs = 25000; // 25 seconds 
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('AI request timed out')), timeoutMs)
-      );
+      // We do NOT dispatch to background. The user must click the link.
       
-      const aiText = await Promise.race([askAI(prompt), timeoutPromise]);
-      
-      // Update the actual response
-      await client.chat.update({
-        channel: loadingMsg.channel,
-        ts: loadingMsg.ts,
-        text: `🤖 ${aiText}`
-      });
+      // We return immediately
+      return;
+
     } catch (aiErr) {
       console.error('AI error:', aiErr);
 

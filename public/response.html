@@ -45,6 +45,21 @@
     } else {
       promptDisplay.textContent = prompt;
 
+      // Immediately notify Slack that we are working on it
+      if (channel && ts && sig) {
+        fetch('/api/update-slack', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            channel, 
+            ts, 
+            text: "✅ Click received! Generating response...",
+            prompt,
+            sig
+          })
+        }).catch(e => console.log('Failed to send initial ack', e));
+      }
+
       fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -87,7 +102,7 @@
                 statusDiv.textContent = '✅ Slack message updated successfully!';
                 statusDiv.style.color = 'green';
               } else {
-                statusDiv.textContent = '❌ Failed to update Slack: ' + (updateData.error || 'Unknown error');
+                statusDiv.textContent = '❌ Failed to update Slack: ' + (updateData.error || 'Unknown error') + (updateData.details ? ' (' + updateData.details + ')' : '');
                 statusDiv.style.color = 'red';
               }
             })
